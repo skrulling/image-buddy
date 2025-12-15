@@ -24,9 +24,7 @@ A simple, privacy-focused image converter and compressor that runs entirely in y
 
 ## Live Demo
 
-Visit the live app: [https://yourusername.github.io/image-buddy](https://yourusername.github.io/image-buddy)
-
-_(Replace `yourusername` with your actual GitHub username after deployment)_
+Visit the live app: [https://skrulling.github.io/image-buddy](https://skrulling.github.io/image-buddy)
 
 ## Local Development
 
@@ -34,7 +32,7 @@ Simply open `index.html` in a modern web browser. No build step or dependencies 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/image-buddy.git
+git clone https://github.com/skrulling/image-buddy.git
 
 # Open in browser
 open index.html
@@ -44,7 +42,7 @@ open index.html
 
 1. **Push to GitHub**:
    ```bash
-   git remote add origin https://github.com/yourusername/image-buddy.git
+   git remote add origin https://github.com/skrulling/image-buddy.git
    git branch -M main
    git push -u origin main
    ```
@@ -57,7 +55,7 @@ open index.html
    - Click "Save"
 
 3. **Access Your Site**:
-   - Your site will be available at `https://yourusername.github.io/image-buddy`
+   - Your site will be available at `https://skrulling.github.io/image-buddy`
    - It may take a few minutes for the initial deployment
 
 ## How It Works
