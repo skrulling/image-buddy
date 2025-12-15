@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Image Buddy</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #0e1116;
+      --panel: #161b22;
+      --card: #1f2630;
+      --text: #e8edf5;
+      --muted: #9fb1ca;
+      --accent: #7de3b2;
+      --accent-strong: #55c592;
+      --border: #2a3240;
+      --danger: #ff8a8a;
+      font-family: "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 20% 20%, rgba(125, 227, 178, 0.07), transparent 35%),
+                  radial-gradient(circle at 80% 0%, rgba(113, 186, 255, 0.08), transparent 40%),
+                  var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .app {
+      width: min(1200px, 100%);
+      display: grid;
+      gap: 18px;
+    }
+
+    header {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.3rem;
+      letter-spacing: -0.01em;
+    }
+
+    header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .controls {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    select, input[type="range"] {
+      width: 100%;
+    }
+
+    select, button, input[type="range"], input[type="text"] {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 0.95rem;
+      transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+    }
+
+    input[type="range"] {
+      padding: 0;
+      accent-color: var(--accent);
+      height: 32px;
+    }
+
+    button {
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: center;
+      font-weight: 600;
+    }
+
+    button:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+    }
+
+    button.primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: #062916;
+      border-color: transparent;
+      box-shadow: 0 10px 20px rgba(125, 227, 178, 0.25);
+    }
+
+    button.ghost {
+      background: transparent;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .dropzone {
+      border: 1.5px dashed var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.01);
+      transition: border-color 150ms ease, background 150ms ease;
+    }
+
+    .dropzone.active {
+      border-color: var(--accent);
+      background: rgba(125, 227, 178, 0.05);
+    }
+
+    .dropzone p {
+      margin: 6px 0 0 0;
+      color: var(--muted);
+    }
+
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--card);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .thumb {
+      width: 100%;
+      height: 180px;
+      background: var(--panel);
+      border-radius: 10px;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+    }
+
+    .thumb img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .meta {
+      display: grid;
+      gap: 4px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .meta strong {
+      color: var(--text);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(125, 227, 178, 0.12);
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      width: fit-content;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      border: 1px dashed var(--border);
+      border-radius: 14px;
+      padding: 32px 12px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .helper {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin: 0;
+    }
+
+    .status {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 12px; }
+      header { align-items: flex-start; }
+      .thumb { height: 150px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <div class="pill">All offline</div>
+        <h1>Image Buddy</h1>
+        <p>Paste, drop, or upload multiple images; compress and convert locally in your browser.</p>
+      </div>
+      <div class="actions">
+        <button class="primary" id="processBtn">Process all</button>
+        <button class="ghost" id="clearBtn">Clear</button>
+      </div>
+    </header>
+
+    <section class="controls">
+      <label>
+        Output format
+        <select id="formatSelect">
+          <option value="image/webp">WebP (.webp)</option>
+          <option value="image/jpeg">JPEG (.jpg)</option>
+          <option value="image/png">PNG (.png)</option>
+        </select>
+      </label>
+      <label>
+        Compression / quality: <span id="qualityValue">80</span>
+        <input type="range" id="qualitySlider" min="40" max="95" step="1" value="80" />
+        <span class="helper">Higher = better visual quality (WebP/JPEG). PNG ignores quality but will still convert.</span>
+      </label>
+      <div>
+        <div class="dropzone" id="dropzone">
+          <strong>Drop or paste images here</strong>
+          <p>Or pick files below (multi-select supported)</p>
+          <div class="row" style="justify-content:center; margin-top:8px;">
+            <button id="fileBtn">Choose files</button>
+            <input type="file" id="fileInput" accept="image/*" multiple style="display:none" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="status" id="status">Waiting for images…</div>
+      <div class="gallery" id="gallery"></div>
+      <div class="empty" id="emptyState">No images yet. Paste (⌘/Ctrl + V), drop, or upload multiple files.</div>
+    </section>
+  </div>
+
+  <script>
+    const images = [];
+    const galleryEl = document.getElementById('gallery');
+    const emptyStateEl = document.getElementById('emptyState');
+    const statusEl = document.getElementById('status');
+    const dropzoneEl = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const fileBtn = document.getElementById('fileBtn');
+    const formatSelect = document.getElementById('formatSelect');
+    const qualitySlider = document.getElementById('qualitySlider');
+    const qualityValue = document.getElementById('qualityValue');
+    const processBtn = document.getElementById('processBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    const formatExtensions = {
+      'image/webp': 'webp',
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+    };
+
+    const getBaseName = (name) => {
+      const cleaned = (name || '').replace(/\.[^.]+$/, '').trim();
+      return cleaned || 'image';
+    };
+
+    const bytesToString = (bytes) => {
+      if (bytes === 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(1024));
+      const size = bytes / Math.pow(1024, i);
+      return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[i]}`;
+    };
+
+    const setStatus = (msg) => { statusEl.textContent = msg; };
+
+    const updateEmptyState = () => {
+      const hasItems = images.length > 0;
+      emptyStateEl.style.display = hasItems ? 'none' : 'block';
+      galleryEl.style.display = hasItems ? 'grid' : 'none';
+    };
+
+    const readFileAsDataURL = (file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    const loadImage = (src) => new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+
+    const convertImage = async (item, mime, quality) => {
+      const img = await loadImage(item.dataURL);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+
+      const normQuality = Math.min(Math.max(quality / 100, 0.05), 0.98);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, mime, normQuality));
+      if (!blob) throw new Error('Conversion failed (format not supported by this browser).');
+
+      const url = URL.createObjectURL(blob);
+      const ext = formatExtensions[mime] || 'out';
+      const baseName = getBaseName(item.outputName || item.name);
+      const fileName = `${baseName}.${ext}`;
+
+      return { url, blob, mime, fileName };
+    };
+
+    const render = () => {
+      galleryEl.innerHTML = '';
+      images.forEach((item) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+
+        const thumb = document.createElement('div');
+        thumb.className = 'thumb';
+        const imgEl = document.createElement('img');
+        imgEl.src = item.dataURL;
+        imgEl.alt = item.name;
+        thumb.appendChild(imgEl);
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const saved = item.processed ? item.size - item.processed.blob.size : 0;
+        const savedLabel = saved >= 0
+          ? `Saved: ${bytesToString(saved)}`
+          : `Larger by: ${bytesToString(Math.abs(saved))}`;
+        meta.innerHTML = `
+          <div><strong>${item.name}</strong></div>
+          <div>Original: ${bytesToString(item.size)} • ${item.type}</div>
+          <div>${item.processed ? `Converted: ${bytesToString(item.processed.blob.size)} • ${formatExtensions[item.processed.mime]}` : 'Not processed yet'}</div>
+          ${item.processed ? `<div>${savedLabel}</div>` : ''}
+        `;
+
+        const renameRow = document.createElement('div');
+        renameRow.className = 'meta';
+        const renameLabel = document.createElement('div');
+        renameLabel.textContent = 'Output name (extension added automatically)';
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.value = item.outputName || getBaseName(item.name);
+        nameInput.placeholder = 'image';
+        nameInput.addEventListener('input', (e) => {
+          item.outputName = e.target.value;
+          if (item.processed) {
+            const ext = formatExtensions[item.processed.mime] || 'out';
+            const base = getBaseName(item.outputName || item.name);
+            item.processed.fileName = `${base}.${ext}`;
+          }
+        });
+        renameRow.append(renameLabel, nameInput);
+
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        const downloadBtn = document.createElement('button');
+        downloadBtn.textContent = item.processed ? 'Download' : 'Pending';
+        downloadBtn.disabled = !item.processed;
+        downloadBtn.onclick = () => {
+          const a = document.createElement('a');
+          a.href = item.processed.url;
+          a.download = item.processed.fileName;
+          a.click();
+        };
+
+        const reprocessBtn = document.createElement('button');
+        reprocessBtn.textContent = 'Re-run';
+        reprocessBtn.onclick = () => processSingle(item);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = 'Remove';
+        removeBtn.onclick = () => {
+          if (item.processed?.url) URL.revokeObjectURL(item.processed.url);
+          const idx = images.findIndex((img) => img.id === item.id);
+          if (idx !== -1) images.splice(idx, 1);
+          render();
+          updateEmptyState();
+        };
+
+        actions.append(downloadBtn, reprocessBtn, removeBtn);
+        card.append(thumb, meta, renameRow, actions);
+        galleryEl.appendChild(card);
+      });
+      updateEmptyState();
+    };
+
+    const processSingle = async (item) => {
+      try {
+        setStatus(`Processing ${item.name}…`);
+        if (item.processed?.url) URL.revokeObjectURL(item.processed.url);
+        const mime = formatSelect.value;
+        const result = await convertImage(item, mime, Number(qualitySlider.value));
+        item.processed = result;
+        setStatus(`Done: ${item.name}`);
+        render();
+      } catch (err) {
+        console.error(err);
+        setStatus(`Error: ${err.message}`);
+      }
+    };
+
+    const processAll = async () => {
+      if (!images.length) {
+        setStatus('Add images first.');
+        return;
+      }
+      setStatus('Processing images…');
+      for (const item of images) {
+        // Sequential to avoid overwhelming memory on huge batches.
+        // If you prefer parallel work for small sets, swap to Promise.all.
+        await processSingle(item);
+      }
+      setStatus('Processing complete.');
+    };
+
+    const handleFiles = async (fileList) => {
+      const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'));
+      if (!files.length) {
+        setStatus('No images detected.');
+        return;
+      }
+
+      setStatus('Reading files…');
+      for (const file of files) {
+        const dataURL = await readFileAsDataURL(file);
+        images.push({
+          id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+          name: file.name,
+          outputName: getBaseName(file.name),
+          type: file.type,
+          size: file.size,
+          dataURL,
+          processed: null,
+        });
+      }
+      render();
+      updateEmptyState();
+      setStatus('Files ready. Click "Process all" to convert.');
+    };
+
+    // Wire up UI
+    fileBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+    processBtn.addEventListener('click', processAll);
+    clearBtn.addEventListener('click', () => {
+      images.forEach((img) => img.processed?.url && URL.revokeObjectURL(img.processed.url));
+      images.length = 0;
+      render();
+      updateEmptyState();
+      setStatus('Cleared.');
+    });
+
+    formatSelect.value = 'image/webp';
+    qualityValue.textContent = qualitySlider.value;
+    qualitySlider.addEventListener('input', () => {
+      qualityValue.textContent = qualitySlider.value;
+    });
+
+    // Drag-and-drop
+    ['dragenter', 'dragover'].forEach((evt) => {
+      dropzoneEl.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzoneEl.classList.add('active');
+      });
+    });
+    ['dragleave', 'drop'].forEach((evt) => {
+      dropzoneEl.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzoneEl.classList.remove('active');
+      });
+    });
+    dropzoneEl.addEventListener('drop', (e) => handleFiles(e.dataTransfer.files));
+
+    // Paste support
+    window.addEventListener('paste', (e) => {
+      const files = Array.from(e.clipboardData.files || []).filter((f) => f.type.startsWith('image/'));
+      if (files.length) {
+        handleFiles(files);
+      }
+    });
+
+    // Optional: auto-process when toggling format/quality if items already exist.
+    const maybeReprocess = () => {
+      if (!images.length) return;
+      processAll();
+    };
+    formatSelect.addEventListener('change', maybeReprocess);
+
+    setStatus('Waiting for images…');
+    updateEmptyState();
+  </script>
+</body>
+</html>
