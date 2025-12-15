@@ -173,7 +173,7 @@
       background: var(--card);
       border: 1px solid var(--border);
       color: var(--text);
-      border-radius: 6px;
+      border-radius: 999px;
       padding: 8px 12px;
       font-family: 'Work Sans', sans-serif;
       font-size: 0.9rem;
@@ -324,7 +324,6 @@
     button:hover {
       border-color: var(--accent);
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }
 
     button:active {
@@ -335,12 +334,7 @@
       background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
       color: #0a1f15;
       border-color: var(--accent-strong);
-      box-shadow: 0 4px 16px rgba(125, 227, 178, 0.25);
       font-weight: 700;
-    }
-
-    button.primary:hover {
-      box-shadow: 0 6px 20px rgba(125, 227, 178, 0.35);
     }
 
     button.ghost {
@@ -362,7 +356,6 @@
 
     button:disabled:hover {
       border-color: var(--border);
-      box-shadow: none;
     }
 
     /* GALLERY SECTION */
@@ -485,7 +478,7 @@
       <div class="panel-header">
         <div class="title-group">
           <h1>Image Buddy</h1>
-          <div class="pill">All offline</div>
+          <div class="pill">All client-side</div>
         </div>
         <div class="header-actions">
           <button class="primary" id="processBtn">Process all</button>
