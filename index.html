@@ -168,7 +168,7 @@
       width: 100%;
     }
 
-    select, button, input[type="text"] {
+    select, button, input[type="text"], input[type="number"] {
       background: var(--card);
       border: 1px solid var(--border);
       color: var(--text);
@@ -181,7 +181,7 @@
       outline: none;
     }
 
-    select:focus, input[type="text"]:focus {
+    select:focus, input[type="text"]:focus, input[type="number"]:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-dim);
     }
@@ -425,10 +425,64 @@
       font-weight: 600;
     }
 
+    .meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .meta-row input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+
+    .number-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .preview-toggle {
+      display: inline-flex;
+      gap: 4px;
+      background: rgba(255, 255, 255, 0.45);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px;
+      width: fit-content;
+    }
+
+    .preview-toggle button {
+      border: none;
+      background: transparent;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 0.68rem;
+      color: var(--muted);
+      transform: none;
+    }
+
+    .preview-toggle button.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
     .actions {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
+    }
+
+    .tiny-indicator {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      align-self: center;
+      min-width: 76px;
+      text-align: right;
     }
 
     .empty {
@@ -481,7 +535,9 @@
         </div>
         <div class="header-actions">
           <button class="primary" id="processBtn">Process all</button>
+          <button class="ghost" id="downloadAllBtn">Download all (.zip)</button>
           <button class="ghost" id="clearBtn">Clear</button>
+          <span class="tiny-indicator" id="zipProgress"></span>
         </div>
       </div>
 
@@ -496,10 +552,36 @@
         </div>
 
         <div class="control-item">
-          <label class="control-label" for="qualitySlider">Quality / Compression</label>
+          <label class="control-label" for="qualitySlider">Max quality</label>
           <div class="quality-display">
             <input type="range" id="qualitySlider" min="40" max="95" step="1" value="80" />
             <span class="quality-value" id="qualityValue">80</span>
+          </div>
+        </div>
+
+        <div class="control-item">
+          <label class="control-label" for="minQualitySlider">Min quality</label>
+          <div class="quality-display">
+            <input type="range" id="minQualitySlider" min="30" max="90" step="1" value="50" />
+            <span class="quality-value" id="minQualityValue">50</span>
+          </div>
+        </div>
+
+        <div class="control-item">
+          <label class="control-label" for="targetReductionSlider">Target reduction %</label>
+          <div class="quality-display">
+            <input type="range" id="targetReductionSlider" min="5" max="80" step="1" value="30" />
+            <span class="quality-value" id="targetReductionValue">30%</span>
+          </div>
+        </div>
+
+        <div class="control-item">
+          <label class="control-label">Photo Handling</label>
+          <div class="meta-row">
+            <label><input type="checkbox" id="autoRotateCheckbox" checked /> Auto-rotate from EXIF</label>
+          </div>
+          <div class="meta-row">
+            <label><input type="checkbox" id="stripMetadataCheckbox" checked /> Strip metadata (web default)</label>
           </div>
         </div>
 
@@ -533,8 +615,32 @@
     const formatSelect = document.getElementById('formatSelect');
     const qualitySlider = document.getElementById('qualitySlider');
     const qualityValue = document.getElementById('qualityValue');
+    const minQualitySlider = document.getElementById('minQualitySlider');
+    const minQualityValue = document.getElementById('minQualityValue');
+    const targetReductionSlider = document.getElementById('targetReductionSlider');
+    const targetReductionValue = document.getElementById('targetReductionValue');
+    const autoRotateCheckbox = document.getElementById('autoRotateCheckbox');
+    const stripMetadataCheckbox = document.getElementById('stripMetadataCheckbox');
     const processBtn = document.getElementById('processBtn');
+    const downloadAllBtn = document.getElementById('downloadAllBtn');
     const clearBtn = document.getElementById('clearBtn');
+    const zipProgressEl = document.getElementById('zipProgress');
+
+    const supportedMimes = {};
+    let reprocessTimer = null;
+    let isZipping = false;
+    let isProcessingBatch = false;
+    const crcTable = (() => {
+      const table = new Uint32Array(256);
+      for (let i = 0; i < 256; i += 1) {
+        let crc = i;
+        for (let j = 0; j < 8; j += 1) {
+          crc = (crc & 1) ? (0xedb88320 ^ (crc >>> 1)) : (crc >>> 1);
+        }
+        table[i] = crc >>> 0;
+      }
+      return table;
+    })();
 
     const formatExtensions = {
       'image/webp': 'webp',
@@ -545,6 +651,11 @@
     const getBaseName = (name) => {
       const cleaned = (name || '').replace(/\.[^.]+$/, '').trim();
       return cleaned || 'image';
+    };
+
+    const getFileExtensionFromName = (name) => {
+      const match = (name || '').match(/\.([^.]+)$/);
+      return match ? match[1].toLowerCase() : null;
     };
 
     const bytesToString = (bytes) => {
@@ -561,6 +672,10 @@
       const hasItems = images.length > 0;
       emptyStateEl.style.display = hasItems ? 'none' : 'block';
       galleryEl.style.display = hasItems ? 'grid' : 'none';
+      processBtn.disabled = isProcessingBatch || isZipping;
+      clearBtn.disabled = isProcessingBatch || isZipping;
+      downloadAllBtn.disabled = isProcessingBatch || isZipping || !images.some((item) => item.processed);
+      zipProgressEl.textContent = isZipping ? 'Zipping...' : '';
     };
 
     const readFileAsDataURL = (file) => new Promise((resolve, reject) => {
@@ -577,27 +692,322 @@
       img.src = src;
     });
 
-    const convertImage = async (item, mime, quality) => {
-      const img = await loadImage(item.dataURL);
+    const crc32 = (data) => {
+      let crc = 0xffffffff;
+      for (let i = 0; i < data.length; i += 1) {
+        crc = crcTable[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
+      }
+      return (crc ^ 0xffffffff) >>> 0;
+    };
+
+    const toDosDateTime = (date) => {
+      const year = Math.max(1980, date.getFullYear());
+      const dosTime = ((date.getHours() & 0x1f) << 11) | ((date.getMinutes() & 0x3f) << 5) | ((Math.floor(date.getSeconds() / 2)) & 0x1f);
+      const dosDate = (((year - 1980) & 0x7f) << 9) | (((date.getMonth() + 1) & 0xf) << 5) | (date.getDate() & 0x1f);
+      return { dosDate, dosTime };
+    };
+
+    const createZipBlob = async (files, onProgress) => {
+      const chunks = [];
+      const centralChunks = [];
+      const textEncoder = new TextEncoder();
+      let offset = 0;
+
+      for (let idx = 0; idx < files.length; idx += 1) {
+        const file = files[idx];
+        const nameBytes = textEncoder.encode(file.name);
+        const payload = new Uint8Array(await file.blob.arrayBuffer());
+        const checksum = crc32(payload);
+        const { dosDate, dosTime } = toDosDateTime(new Date(file.lastModified || Date.now()));
+
+        const localHeader = new ArrayBuffer(30 + nameBytes.length);
+        const localView = new DataView(localHeader);
+        localView.setUint32(0, 0x04034b50, true);
+        localView.setUint16(4, 20, true);
+        localView.setUint16(6, 0x0800, true);
+        localView.setUint16(8, 0, true);
+        localView.setUint16(10, dosTime, true);
+        localView.setUint16(12, dosDate, true);
+        localView.setUint32(14, checksum, true);
+        localView.setUint32(18, payload.length, true);
+        localView.setUint32(22, payload.length, true);
+        localView.setUint16(26, nameBytes.length, true);
+        localView.setUint16(28, 0, true);
+        new Uint8Array(localHeader, 30).set(nameBytes);
+        chunks.push(localHeader, payload);
+
+        const centralHeader = new ArrayBuffer(46 + nameBytes.length);
+        const centralView = new DataView(centralHeader);
+        centralView.setUint32(0, 0x02014b50, true);
+        centralView.setUint16(4, 20, true);
+        centralView.setUint16(6, 20, true);
+        centralView.setUint16(8, 0x0800, true);
+        centralView.setUint16(10, 0, true);
+        centralView.setUint16(12, dosTime, true);
+        centralView.setUint16(14, dosDate, true);
+        centralView.setUint32(16, checksum, true);
+        centralView.setUint32(20, payload.length, true);
+        centralView.setUint32(24, payload.length, true);
+        centralView.setUint16(28, nameBytes.length, true);
+        centralView.setUint16(30, 0, true);
+        centralView.setUint16(32, 0, true);
+        centralView.setUint16(34, 0, true);
+        centralView.setUint16(36, 0, true);
+        centralView.setUint32(38, 0, true);
+        centralView.setUint32(42, offset, true);
+        new Uint8Array(centralHeader, 46).set(nameBytes);
+        centralChunks.push(centralHeader);
+
+        offset += localHeader.byteLength + payload.length;
+        if (onProgress) {
+          onProgress(Math.round(((idx + 1) / files.length) * 100));
+        }
+      }
+
+      const centralSize = centralChunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+      const endHeader = new ArrayBuffer(22);
+      const endView = new DataView(endHeader);
+      endView.setUint32(0, 0x06054b50, true);
+      endView.setUint16(4, 0, true);
+      endView.setUint16(6, 0, true);
+      endView.setUint16(8, files.length, true);
+      endView.setUint16(10, files.length, true);
+      endView.setUint32(12, centralSize, true);
+      endView.setUint32(16, offset, true);
+      endView.setUint16(20, 0, true);
+
+      return new Blob([...chunks, ...centralChunks, endHeader], { type: 'application/zip' });
+    };
+
+    const probeMimeSupport = async (mime) => {
       const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
+      canvas.width = 1;
+      canvas.height = 1;
+      return new Promise((resolve) => {
+        canvas.toBlob((blob) => resolve(Boolean(blob && blob.type === mime)), mime, 0.8);
+      });
+    };
+
+    const initializeEncoderSupport = async () => {
+      const options = Array.from(formatSelect.options);
+      for (const option of options) {
+        supportedMimes[option.value] = await probeMimeSupport(option.value);
+        option.disabled = !supportedMimes[option.value];
+      }
+      const selectedSupported = supportedMimes[formatSelect.value];
+      if (!selectedSupported) {
+        const fallback = options.find((opt) => supportedMimes[opt.value]);
+        if (fallback) {
+          formatSelect.value = fallback.value;
+          setStatus(`Selected format unsupported. Switched to ${formatExtensions[fallback.value]}.`);
+        } else {
+          setStatus('No supported output encoders found in this browser.');
+          processBtn.disabled = true;
+        }
+      }
+    };
+
+    const parsePositiveInt = (value) => {
+      if (value === '' || value === null || typeof value === 'undefined') return null;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+      return Math.round(parsed);
+    };
+
+    const computeOutputDimensions = (item) => {
+      const originalWidth = item.originalWidth;
+      const originalHeight = item.originalHeight;
+      if (!item.resizeEnabled) {
+        return { width: originalWidth, height: originalHeight };
+      }
+
+      const maxWidth = parsePositiveInt(item.maxWidth);
+      const maxHeight = parsePositiveInt(item.maxHeight);
+      if (!maxWidth && !maxHeight) {
+        return { width: originalWidth, height: originalHeight };
+      }
+
+      if (item.preserveAspect) {
+        const ratioW = maxWidth ? maxWidth / originalWidth : Number.POSITIVE_INFINITY;
+        const ratioH = maxHeight ? maxHeight / originalHeight : Number.POSITIVE_INFINITY;
+        const scale = Math.min(ratioW, ratioH, 1);
+        return {
+          width: Math.max(1, Math.round(originalWidth * scale)),
+          height: Math.max(1, Math.round(originalHeight * scale)),
+        };
+      }
+
+      return {
+        width: Math.max(1, maxWidth ? Math.min(originalWidth, maxWidth) : originalWidth),
+        height: Math.max(1, maxHeight ? Math.min(originalHeight, maxHeight) : originalHeight),
+      };
+    };
+
+    const readGlobalQualitySettings = () => {
+      const maxQuality = Number(qualitySlider.value);
+      return {
+        maxQuality,
+        minQuality: Math.min(Number(minQualitySlider.value), maxQuality),
+        targetReduction: Number(targetReductionSlider.value),
+      };
+    };
+
+    const clampQualitySettings = () => {
+      const global = readGlobalQualitySettings();
+      if (Number(minQualitySlider.value) !== global.minQuality) {
+        minQualitySlider.value = String(global.minQuality);
+      }
+      qualityValue.textContent = String(global.maxQuality);
+      minQualityValue.textContent = String(global.minQuality);
+      targetReductionValue.textContent = `${targetReductionSlider.value}%`;
+      return global;
+    };
+
+    const resolveQualitySettingsForItem = (item, global) => {
+      if (!item.qualityOverrideEnabled) {
+        return { maxQuality: global.maxQuality, minQuality: global.minQuality };
+      }
+      const rawMax = parsePositiveInt(item.overrideMaxQuality);
+      const rawMin = parsePositiveInt(item.overrideMinQuality);
+      const maxQuality = Math.max(1, Math.min(100, rawMax || global.maxQuality));
+      const minQuality = Math.max(1, Math.min(maxQuality, rawMin || global.minQuality));
+      return { maxQuality, minQuality };
+    };
+
+    const makeQualityCandidates = (mime, maxQuality, minQuality) => {
+      if (mime === 'image/png') return [null];
+      const candidates = [];
+      for (let q = maxQuality; q >= minQuality; q -= 5) {
+        candidates.push(q);
+      }
+      if (!candidates.includes(minQuality)) candidates.push(minQuality);
+      return candidates;
+    };
+
+    const encodeCanvas = async (canvas, mime, quality) => {
+      const normalized = quality == null ? undefined : Math.min(Math.max(quality / 100, 0.01), 1);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, mime, normalized));
+      if (!blob) {
+        throw new Error('Encoding failed in this browser.');
+      }
+      if (blob.type !== mime) {
+        throw new Error(`Browser cannot encode ${formatExtensions[mime] || mime} directly.`);
+      }
+      return blob;
+    };
+
+    const buildFileName = (item, mime) => {
+      const base = getBaseName(item.outputName || item.name);
+      const ext = formatExtensions[mime] || getFileExtensionFromName(item.name) || 'out';
+      return `${base}.${ext}`;
+    };
+
+    const makeEstimateSignature = (item, requestedMime, settings, dimensions) => [
+      requestedMime,
+      settings.maxQuality,
+      settings.minQuality,
+      settings.targetReduction,
+      settings.autoRotate ? 1 : 0,
+      settings.stripMetadata ? 1 : 0,
+      item.resizeEnabled ? 1 : 0,
+      item.preserveAspect ? 1 : 0,
+      parsePositiveInt(item.maxWidth) || 0,
+      parsePositiveInt(item.maxHeight) || 0,
+      dimensions.width,
+      dimensions.height,
+    ].join('|');
+
+    const loadDecodeSource = async (item, autoRotate) => {
+      if (window.createImageBitmap) {
+        try {
+          return await createImageBitmap(item.originalFile, {
+            imageOrientation: autoRotate ? 'from-image' : 'none',
+          });
+        } catch (err) {
+          console.warn('createImageBitmap orientation option unavailable, falling back to Image()', err);
+        }
+      }
+      return loadImage(item.dataURL);
+    };
+
+    const optimizeImage = async (item, requestedMime, settings) => {
+      if (!supportedMimes[requestedMime]) {
+        throw new Error(`Format ${formatExtensions[requestedMime] || requestedMime} is not supported in this browser.`);
+      }
+
+      const source = await loadDecodeSource(item, settings.autoRotate);
+      const outputDimensions = computeOutputDimensions(item);
+      const signature = makeEstimateSignature(item, requestedMime, settings, outputDimensions);
+      const canvas = document.createElement('canvas');
+      canvas.width = outputDimensions.width;
+      canvas.height = outputDimensions.height;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
+      ctx.drawImage(source, 0, 0, outputDimensions.width, outputDimensions.height);
+      if (source && typeof source.close === 'function') source.close();
 
-      const normQuality = Math.min(Math.max(quality / 100, 0.05), 0.98);
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, mime, normQuality));
-      if (!blob) throw new Error('Conversion failed (format not supported by this browser).');
+      const targetBytes = Math.max(1, Math.floor(item.size * (1 - settings.targetReduction / 100)));
+      const qualityCandidates = makeQualityCandidates(requestedMime, settings.maxQuality, settings.minQuality);
+      let bestTarget = null;
+      let bestSmaller = null;
 
-      const url = URL.createObjectURL(blob);
-      const ext = formatExtensions[mime] || 'out';
-      const baseName = getBaseName(item.outputName || item.name);
-      const fileName = `${baseName}.${ext}`;
+      for (const qualityCandidate of qualityCandidates) {
+        const blob = await encodeCanvas(canvas, requestedMime, qualityCandidate);
+        const candidate = { blob, size: blob.size, qualityUsed: qualityCandidate };
 
-      return { url, blob, mime, fileName };
+        if (candidate.size <= targetBytes) {
+          if (!bestTarget || (qualityCandidate != null && qualityCandidate > bestTarget.qualityUsed)) {
+            bestTarget = candidate;
+          }
+        }
+        if (candidate.size < item.size) {
+          if (!bestSmaller || candidate.size < bestSmaller.size) {
+            bestSmaller = candidate;
+          }
+        }
+      }
+
+      const selected = bestTarget || bestSmaller;
+      if (!selected) {
+        const originalMime = item.originalFile.type || item.type || 'image/jpeg';
+        const originalBlob = item.originalFile;
+        return {
+          url: URL.createObjectURL(originalBlob),
+          blob: originalBlob,
+          requestedMime,
+          actualMime: originalMime,
+          fileName: buildFileName(item, originalMime),
+          qualityUsed: null,
+          targetBytes,
+          targetMet: false,
+          keptOriginal: true,
+          outputWidth: item.originalWidth,
+          outputHeight: item.originalHeight,
+          reason: `Could not shrink below original size at quality >= ${settings.minQuality}`,
+          metadataState: settings.stripMetadata ? 'preserved-original' : 'preserved-by-option',
+          signature,
+        };
+      }
+
+      return {
+        url: URL.createObjectURL(selected.blob),
+        blob: selected.blob,
+        requestedMime,
+        actualMime: selected.blob.type,
+        fileName: buildFileName(item, selected.blob.type),
+        qualityUsed: selected.qualityUsed,
+        targetBytes,
+        targetMet: selected.size <= targetBytes,
+        keptOriginal: false,
+        outputWidth: outputDimensions.width,
+        outputHeight: outputDimensions.height,
+        metadataState: settings.stripMetadata ? 'stripped' : 'stripped-browser-limit',
+        signature,
+      };
     };
 
     const render = () => {
+      const global = readGlobalQualitySettings();
+      const requestedMime = formatSelect.value;
       galleryEl.innerHTML = '';
       images.forEach((item) => {
         const card = document.createElement('div');
@@ -606,22 +1016,157 @@
         const thumb = document.createElement('div');
         thumb.className = 'thumb';
         const imgEl = document.createElement('img');
-        imgEl.src = item.dataURL;
+        const showAfter = item.previewMode === 'after' && item.processed?.url;
+        imgEl.src = showAfter ? item.processed.url : item.dataURL;
         imgEl.alt = item.name;
         thumb.appendChild(imgEl);
+
+        const previewToggle = document.createElement('div');
+        previewToggle.className = 'preview-toggle';
+        const beforeBtn = document.createElement('button');
+        beforeBtn.textContent = 'Before';
+        beforeBtn.className = item.previewMode === 'before' || !item.processed ? 'active' : '';
+        beforeBtn.onclick = () => {
+          item.previewMode = 'before';
+          render();
+        };
+        const afterBtn = document.createElement('button');
+        afterBtn.textContent = 'After';
+        afterBtn.disabled = !item.processed;
+        afterBtn.className = item.previewMode === 'after' && item.processed ? 'active' : '';
+        afterBtn.onclick = () => {
+          item.previewMode = 'after';
+          render();
+        };
+        previewToggle.append(beforeBtn, afterBtn);
+
+        const qualityForItem = resolveQualitySettingsForItem(item, global);
+        const outputDims = computeOutputDimensions(item);
+        const signature = makeEstimateSignature(item, requestedMime, {
+          ...qualityForItem,
+          targetReduction: global.targetReduction,
+          autoRotate: autoRotateCheckbox.checked,
+          stripMetadata: stripMetadataCheckbox.checked,
+        }, outputDims);
+        const estimateBytes = item.estimates[signature];
+        const estimateLine = Number.isFinite(estimateBytes)
+          ? `Estimate with current settings: ${bytesToString(estimateBytes)} (${estimateBytes < item.size ? `save ~${bytesToString(item.size - estimateBytes)}` : 'not smaller'})`
+          : 'Estimate with current settings: run once to cache estimate';
 
         const meta = document.createElement('div');
         meta.className = 'meta';
         const saved = item.processed ? item.size - item.processed.blob.size : 0;
-        const savedLabel = saved >= 0
-          ? `Saved: ${bytesToString(saved)}`
-          : `Larger by: ${bytesToString(Math.abs(saved))}`;
+        const savedLabel = item.processed
+          ? item.processed.keptOriginal
+            ? `Kept original: ${item.processed.reason}`
+            : `Saved: ${bytesToString(Math.max(saved, 0))}`
+          : 'Not processed yet';
+        const qualityLabel = item.processed
+          ? (item.processed.qualityUsed == null ? 'n/a' : item.processed.qualityUsed)
+          : '-';
+        const targetLabel = item.processed
+          ? (item.processed.targetMet ? 'Target met' : 'Target not met')
+          : '-';
+        const metadataLabel = item.processed
+          ? (item.processed.metadataState === 'stripped' ? 'Metadata stripped' :
+            item.processed.metadataState === 'stripped-browser-limit' ? 'Metadata stripped (browser re-encode limitation)' :
+            'Metadata preserved in original')
+          : '-';
         meta.innerHTML = `
           <div><strong>${item.name}</strong></div>
-          <div>Original: ${bytesToString(item.size)} • ${item.type}</div>
-          <div>${item.processed ? `Converted: ${bytesToString(item.processed.blob.size)} • ${formatExtensions[item.processed.mime]}` : 'Not processed yet'}</div>
-          ${item.processed ? `<div>${savedLabel}</div>` : ''}
+          <div>Original: ${bytesToString(item.size)} • ${item.type || 'unknown'} • ${item.originalWidth}x${item.originalHeight}</div>
+          <div>${item.processed ? `Output: ${bytesToString(item.processed.blob.size)} • ${item.processed.actualMime} • ${item.processed.outputWidth}x${item.processed.outputHeight}` : 'Output: not processed'}</div>
+          <div>Quality used: ${qualityLabel} • ${targetLabel}</div>
+          <div>${savedLabel}</div>
+          <div>${estimateLine}</div>
+          <div>${item.processed ? metadataLabel : 'Metadata handling follows global option'}</div>
         `;
+
+        const resizeRow = document.createElement('div');
+        resizeRow.className = 'meta';
+        resizeRow.innerHTML = `
+          <div><strong>Resize</strong></div>
+          <div class="meta-row">
+            <label><input type="checkbox" ${item.resizeEnabled ? 'checked' : ''} data-role="resize-enabled" /> Enable resize</label>
+            <label><input type="checkbox" ${item.preserveAspect ? 'checked' : ''} data-role="preserve-aspect" ${item.resizeEnabled ? '' : 'disabled'} /> Keep aspect ratio</label>
+          </div>
+          <div class="number-grid">
+            <input type="number" min="1" placeholder="Max width (px)" value="${item.maxWidth}" data-role="max-width" ${item.resizeEnabled ? '' : 'disabled'} />
+            <input type="number" min="1" placeholder="Max height (px)" value="${item.maxHeight}" data-role="max-height" ${item.resizeEnabled ? '' : 'disabled'} />
+          </div>
+          <div>Current dimensions: ${item.originalWidth}x${item.originalHeight}</div>
+          <div>Output dimensions: ${outputDims.width}x${outputDims.height}</div>
+        `;
+
+        const qualityRow = document.createElement('div');
+        qualityRow.className = 'meta';
+        qualityRow.innerHTML = `
+          <div><strong>Per-image quality override</strong></div>
+          <div class="meta-row">
+            <label><input type="checkbox" ${item.qualityOverrideEnabled ? 'checked' : ''} data-role="quality-override-enabled" /> Override global quality</label>
+          </div>
+          <div class="number-grid">
+            <input type="number" min="1" max="100" placeholder="Max quality" value="${item.overrideMaxQuality}" data-role="override-max-quality" ${item.qualityOverrideEnabled ? '' : 'disabled'} />
+            <input type="number" min="1" max="100" placeholder="Min quality" value="${item.overrideMinQuality}" data-role="override-min-quality" ${item.qualityOverrideEnabled ? '' : 'disabled'} />
+          </div>
+          <div>Effective quality range: ${qualityForItem.minQuality}-${qualityForItem.maxQuality}</div>
+        `;
+
+        const resizeEnabledEl = resizeRow.querySelector('[data-role="resize-enabled"]');
+        const preserveAspectEl = resizeRow.querySelector('[data-role="preserve-aspect"]');
+        const maxWidthEl = resizeRow.querySelector('[data-role="max-width"]');
+        const maxHeightEl = resizeRow.querySelector('[data-role="max-height"]');
+        const qualityOverrideEnabledEl = qualityRow.querySelector('[data-role="quality-override-enabled"]');
+        const overrideMaxQualityEl = qualityRow.querySelector('[data-role="override-max-quality"]');
+        const overrideMinQualityEl = qualityRow.querySelector('[data-role="override-min-quality"]');
+
+        resizeEnabledEl.addEventListener('change', (e) => {
+          item.resizeEnabled = e.target.checked;
+          render();
+          scheduleReprocess();
+        });
+        preserveAspectEl.addEventListener('change', (e) => {
+          item.preserveAspect = e.target.checked;
+          render();
+          scheduleReprocess();
+        });
+        maxWidthEl.addEventListener('input', (e) => {
+          item.maxWidth = e.target.value;
+          render();
+        });
+        maxHeightEl.addEventListener('input', (e) => {
+          item.maxHeight = e.target.value;
+          render();
+        });
+        maxWidthEl.addEventListener('change', (e) => {
+          item.maxWidth = e.target.value;
+          scheduleReprocess();
+        });
+        maxHeightEl.addEventListener('change', (e) => {
+          item.maxHeight = e.target.value;
+          scheduleReprocess();
+        });
+        qualityOverrideEnabledEl.addEventListener('change', (e) => {
+          item.qualityOverrideEnabled = e.target.checked;
+          render();
+          scheduleReprocess();
+        });
+        overrideMaxQualityEl.addEventListener('input', (e) => {
+          item.overrideMaxQuality = e.target.value;
+          render();
+        });
+        overrideMinQualityEl.addEventListener('input', (e) => {
+          item.overrideMinQuality = e.target.value;
+          render();
+        });
+        overrideMaxQualityEl.addEventListener('change', (e) => {
+          item.overrideMaxQuality = e.target.value;
+          scheduleReprocess();
+        });
+        overrideMinQualityEl.addEventListener('change', (e) => {
+          item.overrideMinQuality = e.target.value;
+          scheduleReprocess();
+        });
 
         const renameRow = document.createElement('div');
         renameRow.className = 'meta';
@@ -634,9 +1179,7 @@
         nameInput.addEventListener('input', (e) => {
           item.outputName = e.target.value;
           if (item.processed) {
-            const ext = formatExtensions[item.processed.mime] || 'out';
-            const base = getBaseName(item.outputName || item.name);
-            item.processed.fileName = `${base}.${ext}`;
+            item.processed.fileName = buildFileName(item, item.processed.actualMime);
           }
         });
         renameRow.append(renameLabel, nameInput);
@@ -655,7 +1198,8 @@
 
         const reprocessBtn = document.createElement('button');
         reprocessBtn.textContent = 'Re-run';
-        reprocessBtn.onclick = () => processSingle(item);
+        reprocessBtn.disabled = isProcessingBatch || isZipping;
+        reprocessBtn.onclick = () => processSingle(item, true);
 
         const removeBtn = document.createElement('button');
         removeBtn.textContent = 'Remove';
@@ -668,24 +1212,36 @@
         };
 
         actions.append(downloadBtn, reprocessBtn, removeBtn);
-        card.append(thumb, meta, renameRow, actions);
+        card.append(thumb, previewToggle, meta, resizeRow, qualityRow, renameRow, actions);
         galleryEl.appendChild(card);
       });
       updateEmptyState();
     };
 
-    const processSingle = async (item) => {
+    const processSingle = async (item, skipStatus = false) => {
       try {
-        setStatus(`Processing ${item.name}…`);
+        if (!skipStatus) setStatus(`Processing ${item.name}...`);
         if (item.processed?.url) URL.revokeObjectURL(item.processed.url);
-        const mime = formatSelect.value;
-        const result = await convertImage(item, mime, Number(qualitySlider.value));
+        const global = clampQualitySettings();
+        const qualityForItem = resolveQualitySettingsForItem(item, global);
+        const requestedMime = formatSelect.value;
+        const settings = {
+          ...qualityForItem,
+          targetReduction: global.targetReduction,
+          autoRotate: autoRotateCheckbox.checked,
+          stripMetadata: stripMetadataCheckbox.checked,
+        };
+        const result = await optimizeImage(item, requestedMime, settings);
         item.processed = result;
-        setStatus(`Done: ${item.name}`);
+        item.estimates[result.signature] = result.blob.size;
+        item.previewMode = 'after';
+        if (!skipStatus) setStatus(`Done: ${item.name}`);
         render();
+        return result;
       } catch (err) {
         console.error(err);
         setStatus(`Error: ${err.message}`);
+        return null;
       }
     };
 
@@ -694,13 +1250,78 @@
         setStatus('Add images first.');
         return;
       }
-      setStatus('Processing images…');
-      for (const item of images) {
-        // Sequential to avoid overwhelming memory on huge batches.
-        // If you prefer parallel work for small sets, swap to Promise.all.
-        await processSingle(item);
+      if (isProcessingBatch || isZipping) return;
+      isProcessingBatch = true;
+      updateEmptyState();
+      setStatus('Processing images...');
+      let optimizedCount = 0;
+      let keptOriginalCount = 0;
+      let targetMetCount = 0;
+      try {
+        for (let idx = 0; idx < images.length; idx += 1) {
+          const item = images[idx];
+          setStatus(`Processing images... ${idx + 1}/${images.length}`);
+          const result = await processSingle(item, true);
+          if (!result) continue;
+          if (result.keptOriginal) {
+            keptOriginalCount += 1;
+          } else {
+            optimizedCount += 1;
+          }
+          if (result.targetMet) {
+            targetMetCount += 1;
+          }
+        }
+      } finally {
+        isProcessingBatch = false;
+        updateEmptyState();
       }
-      setStatus('Processing complete.');
+      setStatus(`Processing complete. Optimized: ${optimizedCount}, kept original: ${keptOriginalCount}, target met: ${targetMetCount}.`);
+      render();
+    };
+
+    const downloadAll = async () => {
+      const processed = images.filter((item) => item.processed);
+      if (!processed.length) {
+        setStatus('No processed images to download.');
+        return;
+      }
+      if (isZipping || isProcessingBatch) return;
+      isZipping = true;
+      updateEmptyState();
+      try {
+        setStatus('Preparing zip...');
+        const zipBlob = await createZipBlob(processed.map((item) => ({
+          name: item.processed.fileName,
+          blob: item.processed.blob,
+          lastModified: Date.now(),
+        })), (pct) => {
+          zipProgressEl.textContent = `Zip ${pct}%`;
+        });
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `image-buddy-${new Date().toISOString().slice(0, 10)}.zip`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setStatus(`Downloaded zip with ${processed.length} image${processed.length === 1 ? '' : 's'}.`);
+      } catch (err) {
+        console.error(err);
+        setStatus(`Zip failed: ${err.message}`);
+      } finally {
+        isZipping = false;
+        zipProgressEl.textContent = '';
+        updateEmptyState();
+      }
+    };
+
+    const scheduleReprocess = () => {
+      if (!images.length) return;
+      if (isProcessingBatch || isZipping) return;
+      clearTimeout(reprocessTimer);
+      reprocessTimer = setTimeout(() => {
+        processAll();
+      }, 250);
     };
 
     const handleFiles = async (fileList) => {
@@ -710,16 +1331,29 @@
         return;
       }
 
-      setStatus('Reading files…');
+      setStatus('Reading files...');
       for (const file of files) {
         const dataURL = await readFileAsDataURL(file);
+        const loaded = await loadImage(dataURL);
         images.push({
           id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
           name: file.name,
           outputName: getBaseName(file.name),
           type: file.type,
           size: file.size,
+          originalFile: file,
           dataURL,
+          originalWidth: loaded.naturalWidth,
+          originalHeight: loaded.naturalHeight,
+          resizeEnabled: false,
+          preserveAspect: true,
+          maxWidth: '',
+          maxHeight: '',
+          qualityOverrideEnabled: false,
+          overrideMaxQuality: '',
+          overrideMinQuality: '',
+          previewMode: 'before',
+          estimates: {},
           processed: null,
         });
       }
@@ -728,10 +1362,10 @@
       setStatus('Files ready. Click "Process all" to convert.');
     };
 
-    // Wire up UI
     fileBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
     processBtn.addEventListener('click', processAll);
+    downloadAllBtn.addEventListener('click', downloadAll);
     clearBtn.addEventListener('click', () => {
       images.forEach((img) => img.processed?.url && URL.revokeObjectURL(img.processed.url));
       images.length = 0;
@@ -740,13 +1374,22 @@
       setStatus('Cleared.');
     });
 
-    formatSelect.value = 'image/webp';
-    qualityValue.textContent = qualitySlider.value;
     qualitySlider.addEventListener('input', () => {
-      qualityValue.textContent = qualitySlider.value;
+      clampQualitySettings();
+      scheduleReprocess();
     });
+    minQualitySlider.addEventListener('input', () => {
+      clampQualitySettings();
+      scheduleReprocess();
+    });
+    targetReductionSlider.addEventListener('input', () => {
+      clampQualitySettings();
+      scheduleReprocess();
+    });
+    autoRotateCheckbox.addEventListener('change', scheduleReprocess);
+    stripMetadataCheckbox.addEventListener('change', scheduleReprocess);
+    formatSelect.addEventListener('change', scheduleReprocess);
 
-    // Drag-and-drop
     ['dragenter', 'dragover'].forEach((evt) => {
       dropzoneEl.addEventListener(evt, (e) => {
         e.preventDefault();
@@ -763,7 +1406,6 @@
     });
     dropzoneEl.addEventListener('drop', (e) => handleFiles(e.dataTransfer.files));
 
-    // Paste support
     window.addEventListener('paste', (e) => {
       const files = Array.from(e.clipboardData.files || []).filter((f) => f.type.startsWith('image/'));
       if (files.length) {
@@ -771,15 +1413,11 @@
       }
     });
 
-    // Optional: auto-process when toggling format/quality if items already exist.
-    const maybeReprocess = () => {
-      if (!images.length) return;
-      processAll();
-    };
-    formatSelect.addEventListener('change', maybeReprocess);
-
-    setStatus('Waiting for images…');
+    formatSelect.value = 'image/webp';
+    clampQualitySettings();
+    setStatus('Waiting for images...');
     updateEmptyState();
+    initializeEncoderSupport();
   </script>
 </body>
 </html>
